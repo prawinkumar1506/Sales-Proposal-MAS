@@ -3,3 +3,5 @@ uvicorn
 langchain-groq
 pydantic
 python-dotenv
+crewai
+crewai-tools
