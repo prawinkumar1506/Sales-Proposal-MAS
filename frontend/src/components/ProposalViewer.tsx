@@ -72,20 +72,20 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
 
             const lines = pdf.splitTextToSize(text, maxWidth);
             checkPageBreak(lines.length * (fontSize * 0.5));
-            
+
             lines.forEach((line: string) => {
                 if (yPosition > pageHeight - margin - 20) {
                     pdf.addPage();
                     yPosition = margin;
                 }
-                
+
                 let xPos = margin;
                 if (align === 'center') {
                     xPos = pageWidth / 2;
                 } else if (align === 'right') {
                     xPos = pageWidth - margin;
                 }
-                
+
                 pdf.text(line, xPos, yPosition, { align });
                 yPosition += fontSize * 0.5;
             });
@@ -95,16 +95,16 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
         if (finalizedData) {
             pdf.setFillColor(15, 23, 42); // slate-900
             pdf.rect(0, 0, pageWidth, 30, 'F');
-            
+
             pdf.setTextColor(255, 255, 255);
             pdf.setFontSize(20);
             pdf.setFont('helvetica', 'bold');
             pdf.text('NORTHSTAR PROPOSAL', pageWidth / 2, 15, { align: 'center' });
-            
+
             pdf.setFontSize(10);
             pdf.setFont('helvetica', 'normal');
             pdf.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth / 2, 22, { align: 'center' });
-            
+
             yPosition = 40;
         }
 
@@ -113,9 +113,8 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
         let isFirstLine = true;
 
         lines.forEach((line) => {
-            const originalLine = line;
             line = line.trim();
-            
+
             if (!line) {
                 yPosition += 3;
                 return;
@@ -131,7 +130,7 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
                 const title = line.substring(2).toUpperCase();
                 addText(title, 22, true, '#0f172a', 'center');
                 yPosition += 8;
-                
+
                 // Add decorative line
                 pdf.setDrawColor(59, 130, 246); // blue-500
                 pdf.setLineWidth(0.5);
@@ -143,7 +142,7 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
                 const heading = line.substring(3);
                 addText(heading, 16, true, '#1e40af');
                 yPosition += 4;
-                
+
                 // Add subtle underline
                 pdf.setDrawColor(200, 200, 200);
                 pdf.setLineWidth(0.3);
@@ -188,7 +187,7 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
                 pageHeight - 10,
                 { align: 'center' }
             );
-            
+
             // Add footer line
             pdf.setDrawColor(200, 200, 200);
             pdf.setLineWidth(0.3);
@@ -221,8 +220,6 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
             const url = URL.createObjectURL(pdfBlob);
             setPdfBlob(url);
             setShowPdfViewer(true);
-            setPageNumber(1);
-            setNumPages(0); // Reset page count
         } catch (error) {
             console.error('Error generating PDF:', error);
             alert('Failed to generate PDF. Please try again.');
@@ -245,9 +242,9 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
             );
         }
 
-        lines.forEach((line, idx) => {
+        lines.forEach((line) => {
             const trimmed = line.trim();
-            
+
             if (!trimmed) {
                 elements.push(<div key={key++} className="h-3"></div>);
                 return;
@@ -286,7 +283,7 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
                 const parts = trimmed.split(/\*\*(.+?)\*\*/);
                 elements.push(
                     <p key={key++} className="text-slate-700 leading-relaxed my-2">
-                        {parts.map((part, i) => 
+                        {parts.map((part, i) =>
                             i % 2 === 0 ? part : <strong key={i} className="font-semibold">{part}</strong>
                         )}
                     </p>
@@ -300,7 +297,7 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
     // Determine which content to show
     const displayContent = finalizedData?.proposal || draft;
     const isFinalized = status === 'finalized' && finalizedData;
-    
+
     // Handle edge cases
     if (!displayContent && isFinalized) {
         return (
@@ -334,24 +331,24 @@ export const ProposalViewer: React.FC<ProposalViewerProps> = ({ draft, status, f
                 </div>
                 <div className="flex items-center gap-3">
                     <div className={`px-3 py-1 rounded-full border text-xs font-bold tracking-wide uppercase ${status === 'finalized' ? 'bg-green-50 text-green-600 border-green-200' :
-                            status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-200' :
-                                'bg-slate-100 text-slate-500 border-slate-200'
+                        status === 'pending' ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                            'bg-slate-100 text-slate-500 border-slate-200'
                         }`}>
                         {status}
                     </div>
 
                     <div className="h-6 w-px bg-slate-200 mx-1"></div>
 
-                    <button 
+                    <button
                         onClick={viewAsPDF}
-                        className="p-2 text-slate-400 hover:text-slate-600 transition-colors hover:bg-slate-100 rounded-lg" 
+                        className="p-2 text-slate-400 hover:text-slate-600 transition-colors hover:bg-slate-100 rounded-lg"
                         title="View as PDF"
                     >
                         <Eye size={18} />
                     </button>
-                    <button 
+                    <button
                         onClick={downloadAsPDF}
-                        className="p-2 text-slate-400 hover:text-slate-600 transition-colors hover:bg-slate-100 rounded-lg" 
+                        className="p-2 text-slate-400 hover:text-slate-600 transition-colors hover:bg-slate-100 rounded-lg"
                         title="Download as PDF"
                     >
                         <Download size={18} />

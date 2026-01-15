@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Send, Bot, Sparkles, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface CopilotChatProps {
@@ -106,8 +106,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, onSendMessag
                                 className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                             >
                                 <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed shadow-sm select-text ${isUser
-                                        ? 'bg-slate-900 text-white rounded-br-none shadow-slate-900/10'
-                                        : 'bg-white text-slate-700 rounded-bl-none border border-slate-100'
+                                    ? 'bg-slate-900 text-white rounded-br-none shadow-slate-900/10'
+                                    : 'bg-white text-slate-700 rounded-bl-none border border-slate-100'
                                     }`}>
                                     {!isUser && <span className="block text-xs font-bold text-blue-600 mb-2">AI AGENT</span>}
                                     {cleanMsg}

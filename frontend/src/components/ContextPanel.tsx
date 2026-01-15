@@ -1,5 +1,5 @@
 import React from 'react';
-import { Database, ShieldCheck, TrendingUp, History, Activity } from 'lucide-react';
+import { Database, ShieldCheck, History, Activity } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 interface ContextPanelProps {
@@ -85,8 +85,8 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({ crmData, pricing, co
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             className={`p-4 rounded-xl text-xs border transition-colors ${compliance.passed
-                                    ? 'bg-green-50 border-green-100 text-green-800'
-                                    : 'bg-rose-50 border-rose-100 text-rose-800'
+                                ? 'bg-green-50 border-green-100 text-green-800'
+                                : 'bg-rose-50 border-rose-100 text-rose-800'
                                 }`}
                         >
                             <div className="font-bold flex items-center gap-2 mb-2">
