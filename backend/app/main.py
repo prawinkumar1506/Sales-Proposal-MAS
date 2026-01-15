@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Northstar Proposal Agent API")
 
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint to keep the server awake."""
+    return {"status": "active", "service": "northstar-backend"}
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
