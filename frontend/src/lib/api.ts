@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = 'https://sales-proposal-mas.onrender.com/api';
 
 export const api = axios.create({
     baseURL: API_BASE,
@@ -22,9 +22,9 @@ export interface ProposalState {
     compliance_info: string;
     terms_conditions: string;
     conclusion: string;
-    
+
     // Media handling
-    uploaded_images: Array<{base64: string, description: string, section: string}>;
+    uploaded_images: Array<{ base64: string, description: string, section: string }>;
 
     crm_data: any;
     pricing: any;
@@ -44,7 +44,7 @@ export interface ProposalState {
     current_step: string;
     audit_log: string[];
     finalized_timestamp: string;
-    
+
     proposed_margin?: number;
     proposed_base_cost?: number;
     compliance_issues?: string[];
