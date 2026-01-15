@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { endpoints } from '../lib/api';
-import { Check, X, AlertCircle, LogOut, CheckCircle2 } from 'lucide-react';
+import { Check, X, AlertCircle, LogOut, CheckCircle2, DollarSign, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -13,7 +13,18 @@ export const AdminDashboard: React.FC = () => {
         setLoading(true);
         try {
             const res = await endpoints.getPendingApprovals();
-            setPending(res.data);
+            // Fetch detailed state for each pending proposal
+            const detailed = await Promise.all(
+                res.data.map(async (item: any) => {
+                    try {
+                        const stateRes = await endpoints.getProposal(item.id);
+                        return { ...item, ...stateRes.data.state };
+                    } catch {
+                        return item;
+                    }
+                })
+            );
+            setPending(detailed);
         } catch (e) {
             console.error(e);
         } finally {
@@ -33,12 +44,16 @@ export const AdminDashboard: React.FC = () => {
     };
 
     const handleAction = async (id: string, action: 'approve' | 'reject') => {
-        const comments = prompt(`Reason for ${action.toUpperCase()}:`, action === 'approve' ? "Approved." : "Margin too low.");
+        const defaultMessage = action === 'approve' 
+            ? "Approved. Pricing parameters and compliance requirements accepted."
+            : "Rejected. Please provide details on why this proposal does not meet our standards.";
+        
+        const comments = prompt(`${action.toUpperCase()} PROPOSAL\n\nEnter your comments:`, defaultMessage);
         if (comments === null) return;
 
         try {
             await endpoints.adminAction(id, action, comments);
-            setPending(current => current.filter(p => p.id !== id)); // Optimistic UI
+            setPending(current => current.filter(p => p.id !== id));
             fetchPending();
         } catch (e) {
             alert("Error performing action");
@@ -47,11 +62,11 @@ export const AdminDashboard: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-slate-50 p-8 font-sans">
-            <div className="max-w-5xl mx-auto">
+            <div className="max-w-7xl mx-auto">
                 <header className="mb-10 flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <div>
                         <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Governance Dashboard</h1>
-                        <p className="text-slate-500 mt-1">Review proposals flagged by the AI agent.</p>
+                        <p className="text-slate-500 mt-1">Review proposals for pricing, margin, and compliance approval.</p>
                     </div>
                     <div className="flex gap-4">
                         <button onClick={fetchPending} className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">
@@ -103,24 +118,80 @@ export const AdminDashboard: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 mb-8 flex gap-8">
-                                            <div className="flex-1">
-                                                <span className="text-xs uppercase font-bold text-slate-400 block mb-2">Trigger Reason</span>
-                                                <div className="text-slate-700 font-medium">Compliance / Margin Threshold Exceeded</div>
-                                            </div>
-                                            <div className="flex-1">
-                                                <span className="text-xs uppercase font-bold text-slate-400 block mb-2">Agent Confidence</span>
-                                                <div className="w-full bg-slate-200 rounded-full h-2 mb-1">
-                                                    <div className="bg-amber-400 h-2 rounded-full w-[85%]"></div>
+                                        {/* Pricing & Compliance Details */}
+                                        <div className="grid grid-cols-2 gap-6 mb-8">
+                                            {/* Pricing Section */}
+                                            <div className="bg-gradient-to-br from-blue-50 to-blue-50/30 p-6 rounded-xl border border-blue-100">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <DollarSign className="text-blue-600" size={20} />
+                                                    <h4 className="font-bold text-slate-800">Pricing Parameters</h4>
                                                 </div>
-                                                <span className="text-xs text-slate-500">85% (Requires Human in Loop)</span>
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <p className="text-xs text-slate-500 uppercase font-semibold">Budget</p>
+                                                        <p className="text-lg font-bold text-slate-800">${item.budget?.toLocaleString() || "N/A"}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs text-slate-500 uppercase font-semibold">Base Cost</p>
+                                                        <p className="text-lg font-bold text-slate-800">${item.proposed_base_cost?.toLocaleString() || "N/A"}</p>
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs text-slate-500 uppercase font-semibold">Proposed Margin</p>
+                                                        <p className={`text-lg font-bold ${item.proposed_margin && item.proposed_margin > 0.2 ? 'text-green-600' : 'text-red-600'}`}>
+                                                            {item.proposed_margin ? `${(item.proposed_margin * 100).toFixed(1)}%` : "N/A"}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Compliance Section */}
+                                            <div className="bg-gradient-to-br from-purple-50 to-purple-50/30 p-6 rounded-xl border border-purple-100">
+                                                <div className="flex items-center gap-2 mb-4">
+                                                    <Shield className="text-purple-600" size={20} />
+                                                    <h4 className="font-bold text-slate-800">Compliance Status</h4>
+                                                </div>
+                                                {item.compliance_issues && item.compliance_issues.length > 0 ? (
+                                                    <div className="space-y-2">
+                                                        {item.compliance_issues.map((issue: string, idx: number) => (
+                                                            <div key={idx} className="flex gap-2 text-sm">
+                                                                <AlertCircle className="text-amber-500 flex-shrink-0" size={16} />
+                                                                <span className="text-slate-700">{issue}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex gap-2 text-sm text-green-700">
+                                                        <Check className="text-green-600 flex-shrink-0" size={16} />
+                                                        <span>All compliance requirements met</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
+                                        {/* Proposal Details */}
+                                        <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 mb-8">
+                                            <h4 className="font-bold text-slate-800 mb-4">Deal Details</h4>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div>
+                                                    <p className="text-xs uppercase font-bold text-slate-500 mb-1">Deal Type</p>
+                                                    <p className="text-slate-800 font-medium">{item.deal_type || "N/A"}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs uppercase font-bold text-slate-500 mb-1">Timeline</p>
+                                                    <p className="text-slate-800 font-medium">{item.timeline || "N/A"}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs uppercase font-bold text-slate-500 mb-1">Industry</p>
+                                                    <p className="text-slate-800 font-medium">{item.crm_data?.industry || "N/A"}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons */}
                                         <div className="flex gap-4 justify-end border-t border-slate-50 pt-6">
                                             <button
                                                 onClick={() => handleAction(item.id, 'reject')}
-                                                className="px-6 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 hover:text-red-600 hover:border-red-100 flex items-center gap-2 text-sm font-bold transition-all"
+                                                className="px-6 py-2.5 border border-slate-200 text-slate-600 rounded-xl hover:bg-red-50 hover:text-red-600 hover:border-red-100 flex items-center gap-2 text-sm font-bold transition-all"
                                             >
                                                 <X size={18} /> REJECT
                                             </button>

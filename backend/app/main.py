@@ -5,14 +5,12 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.runnables import RunnableConfig
+import uuid
 
 # Load environment variables from .env file
 load_dotenv()
 
-from .graph import workflow
-from .state import ProposalState
+from .crew_system import process_proposal, finalize_proposal, proposals_store
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -29,127 +27,107 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Persistence
-memory = MemorySaver()
-# Compile the graph with the checkpointer
-app_graph = workflow.compile(checkpointer=memory)
-
-# Simple in-memory index for Admin UI (since MemorySaver is a key-value store primarily)
-# In production, use a proper DB to index this.
+# Simple in-memory index for Admin UI
 # Format: {thread_id: {client_name, status, last_updated}}
 proposals_index: Dict[str, Dict] = {}
 
+
 class CreateProposalRequest(BaseModel):
     user_request: str
+
 
 class UpdateProposalRequest(BaseModel):
     # For providing missing info
     additional_info: Optional[Dict] = None
 
+
 class AdminActionRequest(BaseModel):
     action: str  # approve / reject
     comments: Optional[str] = ""
 
+
 @app.post("/api/proposals/create")
 async def create_proposal(req: CreateProposalRequest):
-    import uuid
+    """Create a new proposal."""
     thread_id = str(uuid.uuid4())
     
-    initial_state = {
-        "user_request": req.user_request,
-        "audit_log": [f"Proposal started with request: {req.user_request}"],
-        # Initialize others to empty/defaults
-        "current_step": "start",
-        "missing_fields": [],
-        "budget": 0.0
-    }
-    
-    config = {"configurable": {"thread_id": thread_id}}
-    
-    # Run the graph
-    # We use stream=False or invoke to get the final state after the run pauses/stops
-    # The graph will stop at "ask_user" or "wait_for_approval" or "finalize_proposal"
-    result = app_graph.invoke(initial_state, config=config)
+    # Process the initial request
+    state = process_proposal(thread_id, req.user_request)
     
     # Update Index
     proposals_index[thread_id] = {
-        "client_name": result.get("client_name", "Unknown"),
-        "status": result.get("current_step", "unknown"),
-        "approval_status": result.get("approval_status", "none"),
-        "timestamp": 0 # TODO: real timestamp
+        "client_name": state.get("client_name", "Unknown"),
+        "status": state.get("current_step", "unknown"),
+        "approval_status": state.get("approval_status", "none"),
+        "timestamp": 0  # TODO: real timestamp
     }
     
     return {
         "id": thread_id,
-        "state": result,
-        "status": result.get("current_step")
+        "state": state,
+        "status": state.get("current_step"),
+        "question": state.get("current_question")  # If asking user
     }
+
 
 @app.get("/api/proposals/{thread_id}")
 async def get_proposal(thread_id: str):
-    config = {"configurable": {"thread_id": thread_id}}
-    state_snapshot = app_graph.get_state(config)
-    if not state_snapshot.values:
+    """Get proposal state."""
+    if thread_id not in proposals_store:
         raise HTTPException(status_code=404, detail="Proposal not found")
-        
+    
+    state = proposals_store[thread_id]
+    
     return {
         "id": thread_id,
-        "state": state_snapshot.values,
-        "next": state_snapshot.next
+        "state": state,
+        "next": []  # Simple function-based workflow doesn't have next steps
     }
+
 
 @app.post("/api/proposals/{thread_id}/continue")
 async def continue_proposal(thread_id: str, req: UpdateProposalRequest):
     """Resume the proposal after user provides input."""
-    config = {"configurable": {"thread_id": thread_id}}
-    state_snapshot = app_graph.get_state(config)
-    
-    if not state_snapshot.values:
+    if thread_id not in proposals_store:
         raise HTTPException(status_code=404, detail="Proposal not found")
     
-    # Determine what to update. 
-    # If we stopped at 'ask_user', we likely update key fields based on 'additional_info'
-    current_values = state_snapshot.values
-    updates = {}
+    if not req.additional_info:
+        raise HTTPException(status_code=400, detail="additional_info is required")
     
-    if req.additional_info:
-        updates.update(req.additional_info)
-        updates["audit_log"] = current_values.get("audit_log", []) + [f"User provided info: {req.additional_info}"]
+    # Get the user's response
+    user_response = req.additional_info.get("response", "")
     
-    # Run again from current state with updates
-    # We effectively update the state and then permit execution to proceed
-    # Since 'ask_user' went to END, we are technically starting a new run that resumes?
-    # Actually with specific checkpoints, we can update_state and invoke specific node or just invoke(None) to resume from next?
-    # Because we went to END, we need to restart or resume. 
-    # But since 'check_missing_info' loop logic relies on checking state, we can just update state and invoke.
-    # The logic in 'check_missing_info' will decide if we still need to ask user.
+    if not user_response or not user_response.strip():
+        raise HTTPException(status_code=400, detail="User response cannot be empty")
     
-    app_graph.update_state(config, updates)
+    # Handle image uploads
+    state = proposals_store[thread_id]
+    if "image_base64" in req.additional_info and "image_note" in req.additional_info:
+        image_data = {
+            "base64": req.additional_info["image_base64"],
+            "description": req.additional_info["image_note"],
+            "section": "general"
+        }
+        state["uploaded_images"] = state.get("uploaded_images", []) + [image_data]
     
-    # We want to resume. The graph should ideally jump back to 'check_missing_info' or 'collect_intent' 
-    # or just let the workflow decide.
-    # Since the previous run ended at 'ask_user', we can just invoke(None) and 
-    # if we routed via 'ask_user' -> END, the next valid node is tricky unless we manually set it.
-    # For this graph, 'check_missing_info' should be re-evaluated.
-    # Let's effectively "start" again but the checkpointer keeps history. 
-    # We can use invoke(None) but if we are at END, we need to say where to go? 
-    # Or maybe we just invoke with the same inputs and let it fly? 
-    # Better: Update state, then tell it to start at 'check_missing_info'.
-    
-    result = app_graph.invoke(None, config=config) 
+    # Process the user's response
+    state = process_proposal(thread_id, user_response)
     
     # Update Index
-    proposals_index[thread_id].update({
-        "client_name": result.get("client_name", "Unknown"),
-        "status": result.get("current_step", "unknown"),
-        "approval_status": result.get("approval_status", "none")
-    })
+    if thread_id in proposals_index:
+        proposals_index[thread_id].update({
+            "client_name": state.get("client_name", "Unknown"),
+            "status": state.get("current_step", "unknown"),
+            "approval_status": state.get("approval_status", "none")
+        })
     
     return {
         "id": thread_id,
-        "state": result,
-        "status": result.get("current_step")
+        "state": state,
+        "status": state.get("current_step"),
+        "question": state.get("current_question")  # Next question if still asking
     }
+
 
 @app.get("/api/admin/pending")
 async def get_pending_approvals():
@@ -160,59 +138,69 @@ async def get_pending_approvals():
             pending.append({"id": tid, **meta})
     return pending
 
+
 @app.post("/api/admin/{thread_id}/action")
 async def admin_action(thread_id: str, req: AdminActionRequest):
-    """Approve or Reject a proposal."""
-    config = {"configurable": {"thread_id": thread_id}}
+    """Approve or Reject a proposal after pricing/compliance review."""
+    if thread_id not in proposals_store:
+        raise HTTPException(status_code=404, detail="Proposal not found")
     
-    updates = {
-        "approval_status": "approved" if req.action == "approve" else "rejected",
-        "approval_comments": req.comments,
-        "audit_log": [f"Admin {req.action.upper()} with comments: {req.comments}"]
-    }
+    state = proposals_store[thread_id]
     
-    app_graph.update_state(config, updates)
+    if req.action == "approve":
+        # Finalize the proposal
+        state = finalize_proposal(thread_id, req.comments)
+    else:
+        # Reject - update status
+        state["approval_status"] = "rejected"
+        state["approval_comments"] = req.comments
+        state["audit_log"].append(f"Admin REJECTED: {req.comments}")
     
-    # Resume. We were at 'wait_for_approval' -> END.
-    # We want to move to 'approved_or_rejected' logic? 
-    # Wait, 'approved_or_rejected' is a conditional edge.
-    # The node 'wait_for_approval' is where we left off (or rather, we finished it and went to END).
-    # We should restart at 'revise_draft' potentially? 
-    # Or better, we add a node 'admin_review' that we are stuck in?
-    # For this design, we went to END. So we can just invoke(None) and passing a specific point might be needed 
-    # or we rely on the graph structure.
-    # If we are at END, invoke(None) might not know where to go.
-    # We can explicitly say start at "revise_draft" for approved? 
-    # Or re-run the conditional edge "approved_or_rejected"?
-    # Actually, let's just force the next node to be 'revise_draft' as per our simple logic 
-    # or 'finalize_proposal'.
-    # For this demo, let's just invoke(None) and if it fails to move, we force it.
-    
-    # Simpler: We are at the end. We want to execute 'revise_draft'.
-    # We can update state and then invoke starting at 'revise_draft'.
-    
-    # Check if approved
-    next_node = "revise_draft" 
-    
-    result = app_graph.invoke(None, config=config)
-    # If invoke(None) didn't do anything because we were at END:
-    if result.get("current_step") == "wait_for_approval":
-         # Force move
-         # We need to use `Command` or similar in newer LangGraph, or update_state with `as_node`?
-         # Simplest hacks for prototype: Update state, then invoke. 
-         # If the graph doesn't auto-pick up, we might need to be more explicit.
-         # For now, assuming standard behavior where updating state at END might not auto-trigger
-         # UNLESS we treat the previous node as not-END.
-         # Actually, let's just return the update for now if it sticks.
-         pass
-
     # Update Index
     proposals_index[thread_id].update({
-        "status": result.get("current_step", "unknown"),
-        "approval_status": result.get("approval_status")
+        "status": state.get("current_step", "unknown"),
+        "approval_status": state.get("approval_status")
     })
     
-    return {"status": "success", "state": result}
+    return {
+        "status": "success",
+        "state": state,
+        "approval_status": state.get("approval_status")
+    }
+
+
+@app.get("/api/proposals/{thread_id}/finalized")
+async def get_finalized_proposal(thread_id: str):
+    """Returns the finalized sales proposal for display."""
+    if thread_id not in proposals_store:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    
+    state = proposals_store[thread_id]
+    
+    # Check if proposal is finalized
+    if state.get("approval_status") != "finalized":
+        raise HTTPException(status_code=400, detail="Proposal not finalized yet")
+    
+    # Validate that we have the required data
+    final_draft = state.get("final_draft") or state.get("draft_v2") or state.get("draft_v1")
+    if not final_draft:
+        raise HTTPException(status_code=500, detail="Finalized proposal content not found")
+    
+    # Return the finalized proposal data
+    return {
+        "id": thread_id,
+        "status": "finalized",
+        "proposal": final_draft,
+        "client_name": state.get("client_name", "Unknown"),
+        "deal_type": state.get("deal_type", "Unknown"),
+        "budget": state.get("budget", 0),
+        "timeline": state.get("timeline", "Unknown"),
+        "pricing": state.get("pricing", {}),
+        "compliance_status": state.get("compliance_status", "approved"),
+        "audit_log": state.get("audit_log", []),
+        "finalized_timestamp": state.get("audit_log", [])[-1] if state.get("audit_log") else None
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

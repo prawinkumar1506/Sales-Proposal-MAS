@@ -13,9 +13,12 @@
     "axios": "^1.13.2",
     "clsx": "^2.1.1",
     "framer-motion": "^12.26.2",
+    "jspdf": "^4.0.0",
     "lucide-react": "^0.562.0",
+    "pdfjs-dist": "^4.0.379",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-pdf": "^9.2.0",
     "react-router-dom": "^7.12.0",
     "tailwind-merge": "^3.4.0"
   },

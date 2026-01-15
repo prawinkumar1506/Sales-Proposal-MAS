@@ -5,11 +5,8 @@ class MockCRM:
     @staticmethod
     def get_client_data(client_name: str) -> dict:
         """Simulates fetching client data from a CRM."""
-        print(f"DEBUG: MockCRM fetching data for {client_name}")
-        # Simulate some network latency
         time.sleep(0.5)
         
-        # Deterministic mock data based on name length or content
         industry = "Technology" if len(client_name) % 2 == 0 else "Healthcare"
         return {
             "client_id": f"CL-{random.randint(1000, 9999)}",
@@ -24,7 +21,6 @@ class MockPricingEngine:
     @staticmethod
     def calculate_pricing(deal_type: str, budget: float, client_data: dict) -> dict:
         """Simulates a pricing calculation engine."""
-        print(f"DEBUG: MockPricingEngine calculating for {deal_type} with budget {budget}")
         time.sleep(0.5)
         
         base_cost = budget * 0.8  # Assume 20% margin target
@@ -45,7 +41,6 @@ class MockComplianceEngine:
     @staticmethod
     def check_compliance(draft_content: str, deal_type: str) -> dict:
         """Simulates a compliance check on the proposal content."""
-        print("DEBUG: MockComplianceEngine checking draft...")
         time.sleep(0.5)
         
         issues = []

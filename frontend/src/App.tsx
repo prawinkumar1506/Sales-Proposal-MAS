@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { CopilotChat } from './components/CopilotChat';
 import { ProposalViewer } from './components/ProposalViewer';
 import { ContextPanel } from './components/ContextPanel';
@@ -31,49 +31,81 @@ const SalesInterface: React.FC = () => {
     const poll = async () => {
       try {
         const res = await endpoints.getProposal(threadId);
-        // Only update if changed (simple check) to avoid flicker if we had deep comparison
-        // For demo, just set it.
         setState(res.data.state);
-      } catch (e) {
+        
+        // If proposal is finalized, fetch the complete finalized proposal
+        if (res.data.state.approval_status === 'finalized') {
+          try {
+            const finalizedRes = await endpoints.getFinalizedProposal(threadId);
+            setState(prev => ({ ...prev, ...finalizedRes.data }));
+          } catch (e: any) {
+            console.error("Error fetching finalized proposal:", e);
+            // If finalized proposal endpoint fails, show a user-friendly message
+            if (e.response?.status === 400) {
+              setMessages(prev => [...prev, "Agent: Proposal is finalized but having trouble loading the complete data. Please refresh the page."]);
+            } else {
+              setMessages(prev => [...prev, "Agent: Having trouble connecting to the server. Please try again later."]);
+            }
+          }
+        }
+      } catch (e: any) {
         console.error("Polling error", e);
+        // Handle different error scenarios
+        if (e.response?.status === 404) {
+          setMessages(prev => [...prev, "Agent: Proposal not found. Please start a new proposal."]);
+          setThreadId(null);
+          setState({});
+        } else if (e.response?.status >= 500) {
+          setMessages(prev => [...prev, "Agent: Server is experiencing issues. Please try again later."]);
+        }
       }
     };
 
-    const interval = setInterval(poll, 1000); // 1s polling
+    const interval = setInterval(poll, 2000); // 2s polling
     return () => clearInterval(interval);
   }, [threadId]);
 
-  const handleSendMessage = async (msg: string) => {
-    setMessages(prev => [...prev, `User: ${msg}`]);
+  const handleSendMessage = async (msg: string, image?: string) => {
+    if (!msg.trim() && !image) return;
+
+    // Add user message
+    setMessages(prev => [...prev, `User: ${msg || "[Image shared]"}`]);
     setLoading(true);
 
     try {
       if (!threadId) {
-        // Start new
+        // Start new proposal
         const res = await endpoints.createProposal(msg);
         setThreadId(res.data.id);
         setState(res.data.state);
-        setMessages(prev => [...prev, `Agent: Started proposal. ID: ${res.data.id.slice(0, 4)}...`]);
+        
+        // Add agent response based on current question
+        if (res.data.state.current_question) {
+          setMessages(prev => [...prev, `Agent: ${res.data.state.current_question}`]);
+        }
       } else {
-        const missing = state.missing_fields || [];
-        const updatePayload: any = {};
-
-        if (missing.length > 0) {
-          const field = missing[0];
-          if (field === "budget") {
-            updatePayload[field] = parseFloat(msg) || 0;
-          } else {
-            updatePayload[field] = msg;
-          }
-          setMessages(prev => [...prev, `Agent: Received ${field}.`]);
-        } else {
-          setMessages(prev => [...prev, `Agent: Processing input...`]);
+        // Continue conversation
+        const updatePayload: any = { response: msg };
+        if (image) {
+          updatePayload.image_base64 = image;
+          updatePayload.image_note = "[Image analyzed]";
         }
 
-        await endpoints.continueProposal(threadId, updatePayload);
+        const res = await endpoints.continueProposal(threadId, updatePayload);
+        setState(res.data.state);
+
+        // Add agent's next response
+        if (res.data.state.current_step === 'ask_user' && res.data.state.current_question) {
+          setMessages(prev => [...prev, `Agent: ${res.data.state.current_question}`]);
+        } else if (res.data.state.current_step === 'wait_for_approval') {
+          setMessages(prev => [...prev, `Agent: Proposal analysis complete! Pricing and compliance details have been sent to admin for approval. Awaiting authorization...`]);
+        } else if (res.data.state.approval_status === 'finalized') {
+          setMessages(prev => [...prev, `Agent: Proposal has been finalized and is ready to send!`]);
+        }
       }
     } catch (e) {
-      setMessages(prev => [...prev, `Agent: Error communicating with server.`]);
+      console.error("Error:", e);
+      setMessages(prev => [...prev, `Agent: I encountered an error. Please try again.`]);
     } finally {
       setLoading(false);
     }
@@ -111,7 +143,20 @@ const SalesInterface: React.FC = () => {
 
         {/* Center: Proposal */}
         <div className="flex-1 h-full overflow-hidden relative bg-slate-50/50">
-          <ProposalViewer draft={state.draft_v2 || state.draft_v1 || ""} status={state.approval_status || "draft"} />
+          <ProposalViewer 
+            draft={state.draft_v2 || state.draft_v1 || ""} 
+            status={state.approval_status || "draft"} 
+            finalizedData={state.approval_status === 'finalized' ? {
+              proposal: state.proposal || state.final_draft || state.draft_v2 || state.draft_v1 || "",
+              client_name: state.client_name || "",
+              deal_type: state.deal_type || "",
+              budget: state.budget || 0,
+              timeline: state.timeline || "",
+              pricing: state.pricing || {},
+              compliance_status: state.compliance_status || "approved",
+              finalized_timestamp: state.finalized_timestamp || ""
+            } : undefined}
+          />
 
           {/* Blocking Overlay for Approval */}
           {state.current_step === "wait_for_approval" && (
